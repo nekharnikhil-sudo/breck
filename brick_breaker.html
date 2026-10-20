@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Retro Brick Breaker</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+        body {
+            background-color: #0b0f19;
+            color: #fff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+        h1 {
+            color: #00f0ff;
+            text-shadow: 0 0 10px rgba(0, 240, 255, 0.6);
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+        .container {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .hud {
+            display: flex;
+            justify-content: space-between;
+            width: 480px;
+            background: #161f33;
+            padding: 10px 15px;
+            border-radius: 8px 8px 0 0;
+            border: 2px solid #2a3b5c;
+            border-bottom: none;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        .hud div span { color: #00f0ff; font-size: 16px; }
+        canvas {
+            background: #050811;
+            border: 2px solid #2a3b5c;
+            border-radius: 0 0 8px 8px;
+            box-shadow: 0 0 20px rgba(0, 240, 255, 0.2);
+            cursor: pointer;
+        }
+        .overlay {
+            position: absolute;
+            top: 40px;
+            left: 0;
+            width: 100%;
+            height: 320px;
+            background: rgba(5, 8, 17, 0.85);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            border-radius: 0 0 8px 8px;
+        }
+        .overlay h2 { color: #ff0055; font-size: 32px; margin-bottom: 10px; text-shadow: 0 0 10px #ff0055; }
+        .overlay p { font-size: 16px; color: #ccc; margin-bottom: 20px; }
+        .btn {
+            background: linear-gradient(45deg, #00f0ff, #7000ff);
+            color: white;
+            border: none;
+            padding: 10px 25px;
+            font-size: 16px;
+            font-weight: bold;
+            border-radius: 20px;
+            cursor: pointer;
+            box-shadow: 0 0 10px rgba(0, 240, 255, 0.4);
+            transition: 0.2s;
+        }
+        .btn:hover { transform: scale(1.05); }
+        .controls-hint { margin-top: 10px; color: #8a99ad; font-size: 12px; }
+    </style>
+</head>
+<body>
+
+    <h1>🧱 BRICK BREAKER</h1>
+    
+    <div class="container">
+        <div class="hud">
+            <div>SCORE: <span id="score">0</span></div>
+            <div>LIVES: <span id="lives">❤️❤️❤️</span></div>
+            <div>HIGH: <span id="highScore">0</span></div>
+        </div>
+        <canvas id="gameCanvas" width="480" height="320"></canvas>
+        
+        <div id="overlay" class="overlay">
+            <h2 id="overlayTitle">BRICK BREAKER</h2>
+            <p id="overlayText">Press Start to Play!</p>
+            <button id="startBtn" class="btn">PLAY GAME</button>
+        </div>
+    </div>
+    
+    <p class="controls-hint">Controls: Left/Right Arrow Keys or Mouse Move</p>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreEl = document.getElementById('score');
+        const livesEl = document.getElementById('lives');
+        const highScoreEl = document.getElementById('highScore');
+        const overlay = document.getElementById('overlay');
+        const overlayTitle = document.getElementById('overlayTitle');
+        const overlayText = document.getElementById('overlayText');
+        const startBtn = document.getElementById('startBtn');
+
+        // Web Audio Synthesizer
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playSound(type) {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            if (type === 'hit') {
+                osc.frequency.setValueAtTime(400, audioCtx.currentTime);
+                gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.05);
+                osc.start(); osc.stop(audioCtx.currentTime + 0.05);
+            } else if (type === 'paddle') {
+                osc.frequency.setValueAtTime(250, audioCtx.currentTime);
+                gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.08);
+                osc.start(); osc.stop(audioCtx.currentTime + 0.08);
+            } else if (type === 'lose') {
+                osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+                gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+                osc.start(); osc.stop(audioCtx.currentTime + 0.3);
+            } else if (type === 'win') {
+                osc.frequency.setValueAtTime(523, audioCtx.currentTime);
+                osc.frequency.setValueAtTime(659, audioCtx.currentTime + 0.1);
+                gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+                osc.start(); osc.stop(audioCtx.currentTime + 0.3);
+            }
+        }
+
+        let score = 0;
+        let lives = 3;
+        let highScore = localStorage.getItem('bb_high') || 0;
+        highScoreEl.innerText = highScore;
+
+        let ballRadius = 6;
+        let x, y, dx, dy;
+        let paddleHeight = 10;
+        let paddleWidth = 75;
+        let paddleX;
+        let rightPressed = false;
+        let leftPressed = false;
+
+        let brickRowCount = 5;
+        let brickColumnCount = 7;
+        let brickWidth = 55;
+        let brickHeight = 15;
+        let brickPadding = 8;
+        let brickOffsetTop = 20;
+        let brickOffsetLeft = 25;
+        let bricks = [];
+
+        let gameRunning = false;
+
+        function initBricks() {
+            bricks = [];
+            const colors = ['#ff0055', '#ff9900', '#ffff00', '#00ff66', '#00f0ff'];
+            for (let c = 0; c < brickColumnCount; c++) {
+                bricks[c] = [];
+                for (let r = 0; r < brickRowCount; r++) {
+                    bricks[c][r] = { x: 0, y: 0, status: 1, color: colors[r] };
+                }
+            }
+        }
+
+        function resetBallAndPaddle() {
+            x = canvas.width / 2;
+            y = canvas.height - 25;
+            dx = 3;
+            dy = -3;
+            paddleX = (canvas.width - paddleWidth) / 2;
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Right' || e.key === 'ArrowRight') rightPressed = true;
+            if (e.key === 'Left' || e.key === 'ArrowLeft') leftPressed = true;
+        });
+        document.addEventListener('keyup', (e) => {
+            if (e.key === 'Right' || e.key === 'ArrowRight') rightPressed = false;
+            if (e.key === 'Left' || e.key === 'ArrowLeft') leftPressed = false;
+        });
+        document.addEventListener('mousemove', (e) => {
+            const relativeX = e.clientX - canvas.getBoundingClientRect().left;
+            if (relativeX > 0 && relativeX < canvas.width) {
+                paddleX = relativeX - paddleWidth / 2;
+            }
+        });
+
+        function collisionDetection() {
+            let activeBricks = 0;
+            for (let c = 0; c < brickColumnCount; c++) {
+                for (let r = 0; r < brickRowCount; r++) {
+                    let b = bricks[c][r];
+                    if (b.status === 1) {
+                        activeBricks++;
+                        if (x > b.x && x < b.x + brickWidth && y > b.y && y < b.y + brickHeight) {
+                            dy = -dy;
+                            b.status = 0;
+                            score += 10;
+                            scoreEl.innerText = score;
+                            playSound('hit');
+                            if (score > highScore) {
+                                highScore = score;
+                                localStorage.setItem('bb_high', highScore);
+                                highScoreEl.innerText = highScore;
+                            }
+                        }
+                    }
+                }
+            }
+            if (activeBricks === 0) {
+                gameRunning = false;
+                playSound('win');
+                overlayTitle.innerText = "YOU WIN! 🎉";
+                overlayText.innerText = "Final Score: " + score;
+                overlay.style.display = "flex";
+            }
+        }
+
+        function drawBall() {
+            ctx.beginPath();
+            ctx.arc(x, y, ballRadius, 0, Math.PI * 2);
+            ctx.fillStyle = "#00f0ff";
+            ctx.shadowBlur = 8;
+            ctx.shadowColor = "#00f0ff";
+            ctx.fill();
+            ctx.closePath();
+            ctx.shadowBlur = 0;
+        }
+
+        function drawPaddle() {
+            ctx.beginPath();
+            ctx.rect(paddleX, canvas.height - paddleHeight - 5, paddleWidth, paddleHeight);
+            ctx.fillStyle = "#ffffff";
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = "#ffffff";
+            ctx.fill();
+            ctx.closePath();
+            ctx.shadowBlur = 0;
+        }
+
+        function drawBricks() {
+            for (let c = 0; c < brickColumnCount; c++) {
+                for (let r = 0; r < brickRowCount; r++) {
+                    if (bricks[c][r].status === 1) {
+                        let brickX = (c * (brickWidth + brickPadding)) + brickOffsetLeft;
+                        let brickY = (r * (brickHeight + brickPadding)) + brickOffsetTop;
+                        bricks[c][r].x = brickX;
+                        bricks[c][r].y = brickY;
+                        ctx.beginPath();
+                        ctx.rect(brickX, brickY, brickWidth, brickHeight);
+                        ctx.fillStyle = bricks[c][r].color;
+                        ctx.fill();
+                        ctx.closePath();
+                    }
+                }
+            }
+        }
+
+        function updateLivesUI() {
+            livesEl.innerText = "❤️".repeat(lives);
+        }
+
+        function draw() {
+            if (!gameRunning) return;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawBricks();
+            drawBall();
+            drawPaddle();
+            collisionDetection();
+
+            if (x + dx > canvas.width - ballRadius || x + dx < ballRadius) dx = -dx;
+            if (y + dy < ballRadius) dy = -dy;
+            else if (y + dy > canvas.height - ballRadius - paddleHeight - 5) {
+                if (x > paddleX && x < paddleX + paddleWidth) {
+                    dy = -dy;
+                    playSound('paddle');
+                } else if (y + dy > canvas.height - ballRadius) {
+                    lives--;
+                    updateLivesUI();
+                    playSound('lose');
+                    if (!lives) {
+                        gameRunning = false;
+                        overlayTitle.innerText = "GAME OVER";
+                        overlayText.innerText = "Score: " + score;
+                        overlay.style.display = "flex";
+                        return;
+                    } else {
+                        resetBallAndPaddle();
+                    }
+                }
+            }
+
+            if (rightPressed && paddleX < canvas.width - paddleWidth) paddleX += 5;
+            else if (leftPressed && paddleX > 0) paddleX -= 5;
+
+            x += dx;
+            y += dy;
+            requestAnimationFrame(draw);
+        }
+
+        startBtn.addEventListener('click', () => {
+            score = 0;
+            lives = 3;
+            scoreEl.innerText = score;
+            updateLivesUI();
+            initBricks();
+            resetBallAndPaddle();
+            overlay.style.display = "none";
+            gameRunning = true;
+            draw();
+        });
+    </script>
+</body>
+</html>
